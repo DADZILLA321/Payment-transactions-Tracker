@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Payments Transaction Analytics</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#f3f6f6;--card:#fff;--ink:#14231f;--mute:#566a65;--line:#dbe4e2;--acc:#0e7c6b;--acc2:#d9822b;--bad:#c2413b;--good:#1e8a55;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1a18;--card:#172623;--ink:#e8f1ef;--mute:#98b0aa;--line:#26403b;--acc:#3ccab2;--acc2:#f0a64d;--bad:#ef7a73;--good:#4cc790}}
+:root[data-theme="dark"]{--bg:#0f1a18;--card:#172623;--ink:#e8f1ef;--mute:#98b0aa;--line:#26403b;--acc:#3ccab2;--acc2:#f0a64d;--bad:#ef7a73;--good:#4cc790}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.45}
+.wrap{max-width:1120px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.5rem;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--mute);font-size:.9rem;margin:0 0 16px;max-width:70ch}
+.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+select{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;font-size:.9rem}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.kpi span{display:block;color:var(--mute);font-size:.8rem}
+.kpi b{font-size:1.4rem;letter-spacing:-.02em}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}
+.card h2{font-size:.95rem;margin:0 0 10px}
+.ch{position:relative;height:240px}
+ul{margin:0;padding-left:18px;font-size:.88rem}
+li{margin-bottom:6px}
+.dq{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;font-size:.85rem}
+.dq div{border:1px solid var(--line);border-radius:8px;padding:10px}
+.dq b{display:block;font-size:1.1rem}
+.ok{color:var(--good)}
+.note{color:var(--mute);font-size:.78rem;margin-top:16px}
+@media(max-width:760px){.grid,.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Payments Transaction Analytics</h1>
+<p class="sub">Card transaction performance across markets, products and channels, Jan–Dec 2025. Includes the data quality checks that were run before any number was reported.</p>
+<div class="card" style="margin-bottom:12px"><h2>Data quality checks</h2><div class="dq" id="dq"></div></div>
+<div class="filters">
+<select id="fm" aria-label="Market"></select>
+<select id="fp" aria-label="Product"></select>
+</div>
+<div class="kpis" id="kpis"></div>
+<div class="grid">
+<div class="card"><h2>Monthly volume and approval rate</h2><div class="ch"><canvas id="c1"></canvas></div></div>
+<div class="card"><h2>Product mix by volume</h2><div class="ch"><canvas id="c2"></canvas></div></div>
+</div>
+<div class="grid2">
+<div class="card"><h2>Volume by market</h2><div class="ch"><canvas id="c3"></canvas></div></div>
+<div class="card"><h2>Approval rate by channel</h2><div class="ch"><canvas id="c4"></canvas></div></div>
+</div>
+<div class="grid2">
+<div class="card"><h2>Why transactions were declined</h2><div class="ch"><canvas id="c5"></canvas></div></div>
+<div class="card"><h2>Insights and recommendations</h2><ul id="ins"></ul></div>
+</div>
+<p class="note">All data is randomly generated for this project and is not from any real company or payment network.</p>
+</div>
+<script>
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MK=["India","UAE","UK","Singapore","Brazil"],MW=[.3,.18,.22,.12,.18];
+const PR=["Credit","Debit","Prepaid","Commercial"],PW=[.34,.4,.1,.16];
+const CH=["POS","Contactless","E-commerce","Mobile wallet"],CW=[.3,.3,.28,.12],CA={"POS":.95,"Contactless":.965,"E-commerce":.89,"Mobile wallet":.93};
+const DR=["Insufficient funds","Suspected fraud","Expired or invalid card","Issuer unavailable","Wrong PIN or CVV"],DW=[.38,.2,.16,.12,.14];
+const TK={"Credit":120,"Debit":55,"Prepaid":40,"Commercial":380};
+let s=77;const rnd=()=>{s=(s*1664525+1013904223)%4294967296;return s/4294967296};
+const pick=w=>{let r=rnd(),a=0;for(let i=0;i<w.length;i++){a+=w[i];if(r<a)return i}return w.length-1};
+const mw=[.07,.065,.07,.07,.075,.07,.075,.08,.085,.1,.12,.12];
+let raw=[];
+for(let i=0;i<8000;i++){
+ const m=MK[pick(MW)],p=PR[pick(PW)],c=CH[pick(CW)],mo=pick(mw);
+ const ap=rnd()<Math.min(.99,CA[c]+(p==="Commercial"?.02:0)+mo*.0015);
+ const amt=Math.round(TK[p]*(0.3+rnd()*1.4)*100)/100;
+ raw.push({id:i+1,m,p,c,mo,amt,ap,dr:ap?null:DR[pick(DW)],fr:ap&&rnd()<(c==="E-commerce"?.006:.002)});
+}
+for(let i=0;i<120;i++)raw.push({...raw[Math.floor(rnd()*8000)]});
+for(let i=0;i<90;i++)raw.push({...raw[Math.floor(rnd()*8000)],id:9000+i,m:null});
+for(let i=0;i<60;i++)raw.push({...raw[Math.floor(rnd()*8000)],id:9500+i,amt:-Math.abs(raw[i].amt)});
+const seen=new Set();let dup=0,nom=0,bad=0;const data=[];
+raw.forEach(r=>{if(seen.has(r.id)){dup++;return}seen.add(r.id);if(!r.m){nom++;return}if(!(r.amt>0)){bad++;return}data.push(r)});
+const usd=v=>"$"+(v>=1e6?(v/1e6).toFixed(2)+"M":v>=1e3?(v/1e3).toFixed(1)+"K":Math.round(v));
+const sum=(a,f)=>a.reduce((t,o)=>t+f(o),0);
+document.getElementById("dq").innerHTML=
+ `<div><span>Raw records</span><b>${raw.length.toLocaleString("en-IN")}</b></div>
+  <div><span>Duplicates removed</span><b>${dup}</b></div>
+  <div><span>Missing market removed</span><b>${nom}</b></div>
+  <div><span>Invalid amounts removed</span><b>${bad}</b></div>
+  <div><span>Clean records used</span><b class="ok">${data.length.toLocaleString("en-IN")}</b></div>`;
+const fm=document.getElementById("fm"),fp=document.getElementById("fp");
+fm.innerHTML=["All markets",...MK].map(x=>`<option>${x}</option>`).join("");
+fp.innerHTML=["All products",...PR].map(x=>`<option>${x}</option>`).join("");
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let ch={};
+function mk(id,type,labels,sets,o={}){
+ const a=css("--acc"),b=css("--acc2"),m=css("--mute"),l=css("--line"),pal=[a,b,"#3b6fb6","#b5517f","#7a8499"];
+ if(ch[id])ch[id].destroy();
+ ch[id]=new Chart(document.getElementById(id),{type:type==="combo"?"bar":type,data:{labels,datasets:sets.map((d,i)=>({type:d.t||undefined,data:d.v,label:d.n,yAxisID:d.y,backgroundColor:type==="doughnut"?pal:(i?b:a),borderColor:d.t==="line"?b:"transparent",borderWidth:2,pointRadius:d.t==="line"?3:0,tension:.3,borderRadius:4}))},
+ options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:type==="doughnut"||type==="combo",position:"bottom",labels:{color:m,boxWidth:10}},tooltip:{callbacks:{label:c=>(c.dataset.n?c.dataset.n+": ":"")+(o.f?o.f(c.parsed.y??c.parsed,c.datasetIndex):(c.parsed.y??c.parsed))}}},
+ indexAxis:o.h?"y":"x",
+ scales:type==="doughnut"?{}:{x:{ticks:{color:m,callback:o.h?o.t:undefined},grid:{display:!!o.h,color:l},beginAtZero:true},y:{ticks:{color:m,callback:o.h?undefined:o.t},grid:{display:!o.h,color:l},beginAtZero:true},
+ ...(type==="combo"?{y1:{position:"right",min:80,max:100,ticks:{color:m,callback:v=>v+"%"},grid:{display:false}}}:{})}}});
+}
+function render(){
+ const M=fm.value,P=fp.value;
+ const d=data.filter(o=>(M==="All markets"||o.m===M)&&(P==="All products"||o.p===P));
+ const n=d.length,ap=d.filter(o=>o.ap),tpv=sum(ap,o=>o.amt),ar=n?ap.length/n*100:0;
+ const fr=ap.length?ap.filter(o=>o.fr).length/ap.length*1e4:0;
+ document.getElementById("kpis").innerHTML=
+ `<div class="kpi"><span>Purchase volume</span><b>${usd(tpv)}</b></div>
+  <div class="kpi"><span>Transactions</span><b>${n.toLocaleString("en-IN")}</b></div>
+  <div class="kpi"><span>Approval rate</span><b>${ar.toFixed(1)}%</b></div>
+  <div class="kpi"><span>Average ticket</span><b>${usd(ap.length?tpv/ap.length:0)}</b></div>
+  <div class="kpi"><span>Fraud rate</span><b>${fr.toFixed(0)} bps</b></div>`;
+ const vol=MON.map((_,i)=>sum(ap.filter(o=>o.mo===i),o=>o.amt));
+ const arm=MON.map((_,i)=>{const k=d.filter(o=>o.mo===i);return k.length?k.filter(o=>o.ap).length/k.length*100:null});
+ mk("c1","combo",MON,[{n:"Volume",v:vol,y:"y"},{n:"Approval rate",v:arm,t:"line",y:"y1"}],{t:v=>usd(v),f:(v,i)=>i?v.toFixed(1)+"%":usd(v)});
+ mk("c2","doughnut",PR,[{v:PR.map(x=>sum(ap.filter(o=>o.p===x),o=>o.amt))}],{f:usd});
+ mk("c3","bar",MK,[{v:MK.map(x=>sum(ap.filter(o=>o.m===x),o=>o.amt))}],{t:usd,f:usd});
+ const car=CH.map(x=>{const k=d.filter(o=>o.c===x);return k.length?k.filter(o=>o.ap).length/k.length*100:0});
+ mk("c4","bar",CH,[{v:car}],{t:v=>v+"%",f:v=>v.toFixed(1)+"%"});
+ const dec=d.filter(o=>!o.ap),dc=DR.map(x=>dec.filter(o=>o.dr===x).length);
+ mk("c5","bar",DR,[{v:dc}],{h:true,f:v=>v+" declines"});
+ const L=[];
+ if(n){
+  const lo=car.indexOf(Math.min(...car)),hi=car.indexOf(Math.max(...car));
+  L.push(`${CH[lo]} has the lowest approval rate at ${car[lo].toFixed(1)}%, against ${car[hi].toFixed(1)}% for ${CH[hi]}. Recommend reviewing issuer authorisation rules for ${CH[lo]}.`);
+  const top=dc.indexOf(Math.max(...dc));
+  if(dec.length)L.push(`${DR[top]} is the biggest decline reason (${(dc[top]/dec.length*100).toFixed(0)}% of declines), so it is the first place to look for recovered revenue.`);
+  const pk=vol.indexOf(Math.max(...vol));
+  L.push(`Volume peaks in ${MON[pk]} (${usd(vol[pk])}), so capacity and fraud monitoring should be strongest in Q4.`);
+  const mv=MK.map(x=>sum(ap.filter(o=>o.m===x),o=>o.amt)),bm=mv.indexOf(Math.max(...mv));
+  if(M==="All markets")L.push(`${MK[bm]} is the largest market with ${(mv[bm]/tpv*100).toFixed(0)}% of total volume.`);
+  L.push(`Fraud runs at ${fr.toFixed(0)} basis points of approved transactions in this view.`);
+ }else L.push("No transactions match this filter. Pick a different market or product.");
+ document.getElementById("ins").innerHTML=L.map(x=>`<li>${x}</li>`).join("");
+}
+fm.onchange=fp.onchange=render;
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change",render);
+render();
+</script>
+</body>
+</html>
